@@ -104,6 +104,12 @@ setGeneric(
     standardGeneric("mif2")
 )
 
+setGeneric(
+  "mif3", 
+  function (data, ...) 
+    standardGeneric("mif3")
+)
+
 setMethod(
   "mif2",
   signature=signature(data="missing"),
@@ -180,6 +186,32 @@ setMethod(
 
   }
 )
+
+setMethod(
+  "mif3",
+  signature=signature(data="pomp"),
+  definition = function (data,
+                         Nmif = 1, rw.sd,
+                         cooling.type = c("geometric", "hyperbolic"), cooling.fraction.50,
+                         Np, ..., verbose = getOption("verbose", FALSE)) {
+    
+    tryCatch(
+      mif3_internal(
+        data,
+        Nmif=Nmif,
+        rw.sd=rw.sd,
+        cooling.type=match.arg(cooling.type),
+        cooling.fraction.50=cooling.fraction.50,
+        Np=Np,
+        ...,
+        verbose=verbose
+      ),
+      error = function (e) pStop(who="mif3",conditionMessage(e))
+    )
+    
+  }
+)
+
 
 ##' @rdname mif2
 ##' @export
@@ -369,6 +401,118 @@ mif2_internal <- function (object, Nmif, rw.sd,
   )
 
 }
+
+mif3_internal <- function (object, Nmif, rw.sd,
+                           cooling.type, cooling.fraction.50, Np, ..., verbose,
+                           .ndone = 0L, .indices = integer(0), .paramMatrix = NULL,
+                           .gnsi = TRUE) {
+  
+  verbose <- as.logical(verbose)
+  
+  object <- pomp(object,...,verbose=verbose)
+  
+  if (undefined(object@rprocess) || undefined(object@dmeasure))
+    pStop_(paste(sQuote(c("rprocess","dmeasure")),collapse=", ")," are needed basic components.")
+  
+  gnsi <- as.logical(.gnsi)
+  
+  if (length(Nmif) != 1 || !is.numeric(Nmif) || !is.finite(Nmif) || Nmif < 1)
+    pStop_(sQuote("Nmif")," must be a positive integer.")
+  Nmif <- as.integer(Nmif)
+  
+  if (is.null(.paramMatrix)) {
+    start <- coef(object)
+  } else {  ## if '.paramMatrix' is supplied, 'start' is ignored
+    start <- apply(.paramMatrix,1L,mean)
+  }
+  
+  ntimes <- length(time(object))
+  
+  Np <- np_check(Np,ntimes)
+  if (Np[1L] != Np[ntimes+1L])
+    pStop_("Np[1] must equal Np[",ntimes+1L,"].")
+  
+  if (missing(rw.sd))
+    pStop_(sQuote("rw.sd")," must be specified!")
+  rw.sd <- perturbn_kernel_sd(rw.sd,time=time(object),paramnames=names(start))
+  
+  if (missing(cooling.fraction.50))
+    pStop_(sQuote("cooling.fraction.50")," is a required argument.")
+  if (length(cooling.fraction.50) != 1 || !is.numeric(cooling.fraction.50) ||
+      !is.finite(cooling.fraction.50) || cooling.fraction.50 <= 0 ||
+      cooling.fraction.50 > 1)
+    pStop_(sQuote("cooling.fraction.50")," must be in (0,1].")
+  cooling.fraction.50 <- as.numeric(cooling.fraction.50)
+  
+  cooling.fn <- mif2_cooling(
+    type=cooling.type,
+    fraction=cooling.fraction.50,
+    ntimes=length(time(object))
+  )
+  
+  if (is.null(.paramMatrix)) {
+    paramMatrix <- array(data=start,dim=c(length(start),Np[1L]),
+                         dimnames=list(name=names(start),rep=NULL))
+  } else {
+    paramMatrix <- .paramMatrix
+  }
+  
+  traces <- array(
+    data=NA_real_,
+    dim=c(Nmif+1,length(start)+1),
+    dimnames=list(
+      iteration=NULL,
+      name=c("loglik",names(start))
+    )
+  )
+  traces[1L,] <- c(NA,start)
+  
+  pompLoad(object,verbose=verbose)
+  on.exit(pompUnload(object,verbose=verbose))
+  
+  paramMatrix <- partrans(object,paramMatrix,dir="toEst",.gnsi=gnsi)
+  
+  ## iterate the filtering
+  for (n in seq_len(Nmif)) {
+    
+    pfp <- mif2_pfilter(
+      object=object,
+      params=paramMatrix,
+      Np=Np,
+      mifiter=.ndone+n,
+      cooling.fn=cooling.fn,
+      rw.sd=rw.sd,
+      verbose=verbose,
+      .indices=.indices,
+      .gnsi=gnsi
+    )
+    
+    gnsi <- FALSE
+    
+    if (n != Nmif) paramMatrix <- t(apply(pfp@paramMatrix, 1, sample))
+    
+    traces[n+1,-1L] <- coef(pfp)
+    traces[n,1L] <- pfp@loglik
+    .indices <- pfp@indices
+    
+    if (verbose) cat("mif2 iteration",n,"of",Nmif,"completed\n")
+    
+  }
+  
+  pfp@paramMatrix <- partrans(object,paramMatrix,dir="fromEst",.gnsi=gnsi)
+  
+  new(
+    "mif2d_pomp",
+    pfp,
+    Nmif=Nmif,
+    rw.sd=rw.sd,
+    cooling.type=cooling.type,
+    cooling.fraction.50=cooling.fraction.50,
+    traces=traces
+  )
+  
+}
+
 
 mif2_cooling <- function (type, fraction, ntimes) {
   switch(
