@@ -94,7 +94,8 @@ setClass(
     rw.sd = 'matrix',
     cooling.type = 'character',
     cooling.fraction.50 = 'numeric',
-    traces = 'matrix'
+    traces = 'matrix',
+    saved.pstates = "list"
   )
 )
 
@@ -261,10 +262,12 @@ setMethod(
 )
 
 mif2_internal <- function (object, Nmif, rw.sd,
-  cooling.type, cooling.fraction.50, Np, ..., verbose,
+  cooling.type, cooling.fraction.50, Np, 
+  save.pstates = FALSE, ..., verbose,
   .ndone = 0L, .indices = integer(0), .paramMatrix = NULL,
   .gnsi = TRUE) {
 
+  stsav <- as.logical(save.pstates)
   verbose <- as.logical(verbose)
 
   object <- pomp(object,...,verbose=verbose)
@@ -328,6 +331,10 @@ mif2_internal <- function (object, Nmif, rw.sd,
   pompLoad(object,verbose=verbose)
   on.exit(pompUnload(object,verbose=verbose))
 
+  if (stsav) {
+    xparticles <- vector(mode="list",length=Nmif)
+  }
+  
   paramMatrix <- partrans(object,paramMatrix,dir="toEst",.gnsi=gnsi)
 
   ## iterate the filtering
@@ -342,11 +349,16 @@ mif2_internal <- function (object, Nmif, rw.sd,
       rw.sd=rw.sd,
       verbose=verbose,
       .indices=.indices,
-      .gnsi=gnsi
+      .gnsi=gnsi,
+      save.pstates=stsav
     )
 
     gnsi <- FALSE
 
+    if (stsav) {
+      xparticles[[n]] <- pfp@saved.states
+    }
+    
     paramMatrix <- pfp@paramMatrix
     traces[n+1,-1L] <- coef(pfp)
     traces[n,1L] <- pfp@loglik
@@ -358,6 +370,12 @@ mif2_internal <- function (object, Nmif, rw.sd,
 
   pfp@paramMatrix <- partrans(object,paramMatrix,dir="fromEst",.gnsi=gnsi)
 
+  if (stsav) {
+    pstates <- xparticles
+  } else {
+    pstates <- list()
+  }
+  
   new(
     "mif2d_pomp",
     pfp,
@@ -365,7 +383,8 @@ mif2_internal <- function (object, Nmif, rw.sd,
     rw.sd=rw.sd,
     cooling.type=cooling.type,
     cooling.fraction.50=cooling.fraction.50,
-    traces=traces
+    traces=traces,
+    saved.pstates=pstates
   )
 
 }
@@ -397,8 +416,9 @@ mif2_cooling <- function (type, fraction, ntimes) {
 }
 
 mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
-  verbose, .indices = integer(0), .gnsi = TRUE) {
+  verbose, save.pstates = FALSE, .indices = integer(0), .gnsi = TRUE) {
 
+  stsav <- as.logical(save.pstates)
   gnsi <- as.logical(.gnsi)
   verbose <- as.logical(verbose)
   mifiter <- as.integer(mifiter)
@@ -414,6 +434,10 @@ mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
   loglik <- rep(NA,ntimes)
   eff.sample.size <- numeric(ntimes)
 
+  if (stsav) {
+    xparticles <- vector(mode="list",length=ntimes)
+  }
+  
   for (nt in seq_len(ntimes)) {
 
     ## perturb parameters
@@ -473,12 +497,23 @@ mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
 
     x <- xx$states
     params <- xx$params
+    
+    if (stsav) {
+      tmp_pars <- partrans(object, params,dir="fromEst",.gnsi=gnsi)
+      xparticles[[nt]] <- tmp_pars[names(pmag), , drop=FALSE]
+    }
 
     if (verbose && (nt%%5==0))
       cat("mif2 pfilter timestep",nt,"of",ntimes,"finished.\n")
 
   }
 
+  if (stsav) {
+    pstates <- xparticles
+  } else {
+    pstates <- list()
+  }
+  
   new(
     "pfilterd_pomp",
     as(object,"pomp"),
@@ -487,7 +522,8 @@ mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
     cond.logLik=loglik,
     indices=.indices,
     Np=Np,
-    loglik=sum(loglik)
+    loglik=sum(loglik),
+    saved.states=pstates
   )
 }
 
