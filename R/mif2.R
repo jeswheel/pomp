@@ -95,7 +95,8 @@ setClass(
     cooling.type = 'character',
     cooling.fraction.50 = 'numeric',
     traces = 'matrix',
-    saved.pstates = "list"
+    saved.pstates = "list",
+    index.matrix = "array"
   )
 )
 
@@ -267,6 +268,8 @@ mif2_internal <- function (object, Nmif, rw.sd,
   .ndone = 0L, .indices = integer(0), .paramMatrix = NULL,
   .gnsi = TRUE) {
 
+  do_ta <- length(.indices)>0L
+  
   stsav <- as.logical(save.pstates)
   verbose <- as.logical(verbose)
 
@@ -288,7 +291,7 @@ mif2_internal <- function (object, Nmif, rw.sd,
   }
 
   ntimes <- length(time(object))
-
+  
   Np <- np_check(Np,ntimes)
   if (Np[1L] != Np[ntimes+1L])
     pStop_("Np[1] must equal Np[",ntimes+1L,"].")
@@ -335,6 +338,12 @@ mif2_internal <- function (object, Nmif, rw.sd,
     xparticles <- vector(mode="list",length=Nmif)
   }
   
+  if (do_ta) {
+    .indicesMat <- array(dim=c(Nmif, ntimes, Np))
+  } else {
+    .indicesMat <- array(data=numeric(0),dim=c(0,0))
+  }
+  
   paramMatrix <- partrans(object,paramMatrix,dir="toEst",.gnsi=gnsi)
 
   ## iterate the filtering
@@ -357,6 +366,10 @@ mif2_internal <- function (object, Nmif, rw.sd,
 
     if (stsav) {
       xparticles[[n]] <- pfp@saved.states
+    }
+    
+    if (do_ta) {
+      .indicesMat[n, , ] <- pfp@index.matrix
     }
     
     paramMatrix <- pfp@paramMatrix
@@ -384,7 +397,8 @@ mif2_internal <- function (object, Nmif, rw.sd,
     cooling.type=cooling.type,
     cooling.fraction.50=cooling.fraction.50,
     traces=traces,
-    saved.pstates=pstates
+    saved.pstates=pstates,
+    index.matrix=.indicesMat
   )
 
 }
@@ -431,6 +445,12 @@ mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
   times <- time(object,t0=TRUE)
   ntimes <- length(times)-1
 
+  if (stsav && do_ta) {
+    .indicesMat <- array(data=numeric(0), dim = c(ntimes, Np))
+  } else {
+    .indicesMat <- array(data=numeric(0),dim = c(0,0))
+  }
+  
   loglik <- rep(NA,ntimes)
   eff.sample.size <- numeric(ntimes)
 
@@ -501,6 +521,8 @@ mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
     if (stsav) {
       tmp_pars <- partrans(object, params,dir="fromEst",.gnsi=gnsi)
       xparticles[[nt]] <- tmp_pars[names(pmag), , drop=FALSE]
+      
+      if (do_ta) .indicesMat[nt, ] <- .indices
     }
 
     if (verbose && (nt%%5==0))
@@ -523,7 +545,8 @@ mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
     indices=.indices,
     Np=Np,
     loglik=sum(loglik),
-    saved.states=pstates
+    saved.states=pstates,
+    index.matrix=.indicesMat
   )
 }
 
