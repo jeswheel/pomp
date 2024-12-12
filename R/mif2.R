@@ -339,7 +339,7 @@ mif2_internal <- function (object, Nmif, rw.sd,
   }
   
   if (do_ta) {
-    .indicesMat <- array(dim=c(Nmif, ntimes, Np))
+    .indicesMat <- array(dim=c(Nmif, ntimes, Np[1L]))
   } else {
     .indicesMat <- array(data=numeric(0),dim=c(0,0))
   }
@@ -446,7 +446,7 @@ mif2_pfilter <- function (object, params, Np, mifiter, rw.sd, cooling.fn,
   ntimes <- length(times)-1
 
   if (stsav && do_ta) {
-    .indicesMat <- array(data=numeric(0), dim = c(ntimes, Np))
+    .indicesMat <- array(data=numeric(0), dim = c(ntimes, Np[1L]))
   } else {
     .indicesMat <- array(data=numeric(0),dim = c(0,0))
   }
