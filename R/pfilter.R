@@ -125,8 +125,8 @@ setMethod(
   signature=signature(data="data.frame"),
   definition=function (
     data,
-    Np,
     ...,
+    Np,
     params, rinit, rprocess, dmeasure,
     pred.mean = FALSE,
     pred.var = FALSE,
@@ -201,8 +201,9 @@ setMethod(
   "pfilter",
   signature=signature(data="pfilterd_pomp"),
   function (
-    data, Np,
+    data,
     ...,
+    Np,
     verbose = getOption("verbose", FALSE)
   ) {
 
